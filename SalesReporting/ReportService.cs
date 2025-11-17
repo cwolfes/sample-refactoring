@@ -1,45 +1,81 @@
-using Systen;
-using
-System.Collections.Generic;
-System.IO;
-System.Linq;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace SalesReporting
 {
+    /// <summary>
+    /// Generates a simple sales report for a given year and month.
+    /// </summary>
     public class ReportService
     {
-        public void CreateReportForYearAndMonth(int year, int month)
-        {
+        // Exchange‑rates table
+        private static readonly IReadOnlyDictionary<string, double> ExchangeRates
+            = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "USD", 1.0 },   // base currency
+                { "EUR", 1.1 },
+                { "GBP", 1.3 }
+            };
 
-        var allSales = JsonSerializer.Deserialize<List<SaleObject>>(File.ReadAllText("sales.json"));
-        var filtered = allSales.Where(s => s.Date.Year == year && s.Date.Month == month).ToList();
-        double total = 0;
-        foreach (var sale in filtered)
+        // Public API
+
+        /// <summary>
+        /// Reads *sales.json*, filters by year/month, aggregates the totals,
+        /// and writes a human‑readable report to a file.
+        /// </summary>
+        public async Task CreateReportForYearAndMonthAsync(int year, int month)
         {
-            if (sale.Currency == "USD")
-                total += sale.Amount;
-            else if (sale.Currency == "EUR")
+            var allSales = await LoadSalesAsync("sales.json");
+            var filtered = allSales
+                .Where(s => s.Date.Year == year && s.Date.Month == month)
+                .ToList();
+
+            double totalUsd = filtered.Sum(s => s.Amount * GetExchangeRate(s.Currency));
+
+            var reportLines = new[]
             {
-                total += sale.Amount * 1.1;
-            }
-            else if (sale.Currency == "GBP")
-            {
-                total += sale.Amount * 1.3;
-            }
+                $"Monatlicher Verkaufsbericht ({month:D2}/{year})",
+                new string('-', 40),
+                $"Gesamt Umsatz in USD: {totalUsd:N2}"
+            };
+
+            var fileName = $"report_{year}_{month:D2}.txt";
+            await File.WriteAllLinesAsync(fileName, reportLines);
+
+            Console.WriteLine($"Report generated successfully: {fileName}");
         }
-        var reportRows = new List<string>
+
+      
+        /// <summary>
+        /// Looks up the exchange rate for a given currency.
+        /// If the currency is unknown, it defaults to 1.0 (USD).
+        /// </summary>
+        private static double GetExchangeRate(string currency)
+            => ExchangeRates.TryGetValue(currency, out var rate) ? rate : 1.0;
+
+        /// <summary>
+        /// Reads the JSON file and returns a <see cref="List{SaleObject}"/>.
+        /// Throws if deserialization fails.
+        /// </summary>
+        private static async Task<List<SaleObject>> LoadSalesAsync(string path)
         {
-            $"Monatlicher Verkaufsbericht ({month}/{year})",
-            $"-------------------------------",
-            $"Gesamt Umsatz in USD: {total}"
+            var json = await File.ReadAllTextAsync(path);
+            return JsonSerializer.Deserialize<List<SaleObject>>(json)
+                   ?? throw new InvalidOperationException($"Unable to deserialize {path}.");
         }
-        File.WriteAllLines($"report_{year}_{month}.txt", reportRows);
-        Console.WriteLine("Report generated successfully.");
     }
-    public class SaleObject
+
+    /// <summary>
+    /// Model representing a single sale record.
+    /// </summary>
+    public sealed class SaleObject
     {
-    public DateTime Date { get; set; }
-    public double Amount { get; set; }
-    public string Currency { get; set; }
+        public DateTime Date { get; set; }
+        public double Amount { get; set; }
+        public string Currency { get; set; } = string.Empty;
+    }
 }
